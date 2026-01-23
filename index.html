@@ -18,11 +18,11 @@
             backdrop-filter: blur(10px);
             padding: 0 20px 20px 20px;
             box-shadow: 0 8px 32px rgba(0,0,0,0.15);
-            z-index: 10;
+            z-index: 20; /* Higher than toggle button */
             transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        /* DESKTOP STYLES (Floating Side Panel) */
+        /* DESKTOP STYLES */
         @media (min-width: 768px) {
             .info-panel {
                 top: 20px;
@@ -39,7 +39,7 @@
                 position: absolute;
                 top: 20px;
                 left: 20px;
-                z-index: 9;
+                z-index: 10;
                 background: #003366;
                 color: white;
                 border: none;
@@ -49,9 +49,16 @@
                 font-weight: 600;
                 box-shadow: 0 4px 12px rgba(0,0,0,0.2);
             }
+            .close-icon-desktop {
+                display: block;
+                cursor: pointer;
+                font-size: 24px;
+                color: #64748b;
+                line-height: 1;
+            }
         }
 
-        /* MOBILE STYLES (Bottom Sheet) */
+        /* MOBILE STYLES */
         @media (max-width: 767px) {
             .info-panel {
                 bottom: 0;
@@ -77,13 +84,19 @@
                 border-radius: 2px;
             }
             .desktop-toggle { display: none; }
+            .close-icon-desktop { display: none; }
         }
 
         /* CONTENT STYLING */
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
         .info-panel h2 {
             color: #003366;
             font-size: 18px;
-            margin-bottom: 12px;
             display: flex;
             align-items: center;
             gap: 8px;
@@ -133,14 +146,17 @@
 
 <div id="map"></div>
 
-<button class="desktop-toggle" onclick="togglePanel()">☰ View Schedule</button>
+<button class="desktop-toggle" onclick="togglePanel()">🚐 View Schedule</button>
 
 <div class="info-panel" id="ui-panel">
     <div class="toggle-handle" onclick="togglePanel()">
         <div class="handle-bar"></div>
     </div>
     
-    <h2><span class="status-dot"></span> Shuttle Tracker</h2>
+    <div class="panel-header">
+        <h2><span class="status-dot"></span> Shuttle Tracker</h2>
+        <div class="close-icon-desktop" onclick="togglePanel()">&times;</div>
+    </div>
     
     <div class="shuttle-info">
         <h3>Next Arrival</h3>
@@ -168,10 +184,9 @@
         container: 'map',
         style: 'mapbox://styles/mapbox/streets-v12',
         center: [-117.7325, 33.5555],
-        zoom: 14
+        zoom: 14.5
     });
 
-    // 1. THE ROAD-FOLLOWING ROUTE (NO BUILDINGS)
     const routeCoordinates = [
         [-117.7356, 33.5554], [-117.7348, 33.5575], [-117.7325, 33.5610], 
         [-117.7330, 33.5650], [-117.7315, 33.5710], [-117.7250, 33.5743], 
@@ -191,11 +206,11 @@
     let shuttlePosition = 0;
     let shuttleMarker;
 
-    // 2. TOGGLE LOGIC
     function togglePanel() {
         document.getElementById('ui-panel').classList.toggle('collapsed');
     }
 
+    // Map click hides panel only on mobile to keep desktop focus clean
     map.on('click', () => {
         if (window.innerWidth < 768) {
             document.getElementById('ui-panel').classList.add('collapsed');
@@ -230,6 +245,7 @@
 
         animateShuttle();
         updateETAs();
+        setInterval(updateETAs, 10000);
     });
 
     function animateShuttle() {

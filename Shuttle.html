@@ -1,1 +1,295 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Soka Shuttle Live</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src='https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js'></script>
+    <link href='https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css' rel='stylesheet' />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; overflow: hidden; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+        
+        /* THE UPDATED PANEL */
+        .info-panel {
+            position: absolute;
+            bottom: 0; /* Align to bottom like Google Maps */
+            left: 0;
+            right: 0;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 0 20px 20px 20px;
+            border-radius: 24px 24px 0 0; /* Rounded top corners */
+            box-shadow: 0 -8px 32px rgba(0,0,0,0.15);
+            z-index: 10;
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1); /* Smooth sliding effect */
+            max-width: 500px;
+            margin: 0 auto;
+        }
 
+        /* Collapsed state - hides most of the panel */
+        .info-panel.collapsed {
+            transform: translateY(calc(100% - 60px)); /* Leaves just the handle/title visible */
+        }
+
+        /* The "Google Maps" style handle */
+        .toggle-handle {
+            width: 100%;
+            height: 40px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .handle-bar {
+            width: 40px;
+            height: 4px;
+            background: #cbd5e1;
+            border-radius: 2px;
+        }
+        
+        .info-panel h2 {
+            color: #003366;
+            font-size: 18px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .shuttle-info {
+            background: linear-gradient(135deg, #003366 0%, #004080 100%);
+            color: white;
+            padding: 16px;
+            border-radius: 12px;
+            margin: 12px 0;
+        }
+        
+        .shuttle-info h3 {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 8px;
+        }
+        
+        .eta-time {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        
+        .eta-label {
+            font-size: 13px;
+            opacity: 0.8;
+        }
+        
+        .stop-info {
+            margin: 12px 0;
+            padding: 12px;
+            background: #f8fafc;
+            border-radius: 8px;
+        }
+        
+        .stop-info strong {
+            color: #003366;
+            font-size: 14px;
+        }
+        
+        .stop-info p {
+            color: #64748b;
+            font-size: 13px;
+            margin-top: 4px;
+        }
+        
+        .btn {
+            background: #003366;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            width: 100%;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn:hover { background: #004080; }
+
+        .schedule {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #e2e8f0;
+        }
+        
+        .schedule-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 13px;
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="info-panel" id="ui-panel">
+    <div class="toggle-handle" onclick="togglePanel()">
+        <div class="handle-bar"></div>
+    </div>
+    
+    <h2>
+        <span class="status-dot"></span>
+        Shuttle Tracker
+    </h2>
+    
+    <div id="collapsible-content">
+        <div class="shuttle-info">
+            <h3>Next Arrival</h3>
+            <div class="eta-time" id="eta-time">--</div>
+            <div class="eta-label" id="eta-label">Calculating...</div>
+        </div>
+        
+        <div class="stop-info">
+            <strong id="stop-name">Select your location</strong>
+            <p id="stop-distance">Tap below to find nearest stop</p>
+        </div>
+        
+        <button class="btn" onclick="locateUser()">📍 Find My Location</button>
+        
+        <div class="schedule">
+            <div class="schedule-item next" id="next-shuttle">Next: --</div>
+            <div class="schedule-item" id="following-shuttle">Following: --</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // NEW TOGGLE FUNCTION
+    function togglePanel() {
+        const panel = document.getElementById('ui-panel');
+        panel.classList.toggle('collapsed');
+    }
+
+    // Mapbox logic stays the same
+    mapboxgl.accessToken = 'pk.eyJ1IjoicGVlYm9hdCIsImEiOiJjbWtyM3JnZm8wbDZsM2Rwemh2bXVwZnE5In0.ZneKju4nnhfYcJOg3TKRDA';
+    
+    const map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/mapbox/streets-v12',
+        center: [-117.7325, 33.5555],
+        zoom: 14.5
+    });
+
+    // Close panel if user clicks on the map
+    map.on('click', () => {
+        document.getElementById('ui-panel').classList.add('collapsed');
+    });
+
+    const routeCoordinates = [
+        [-117.7356, 33.5554], [-117.7348, 33.5575], [-117.7325, 33.5610], 
+        [-117.7330, 33.5650], [-117.7315, 33.5710], [-117.7250, 33.5743], 
+        [-117.7265, 33.5775], [-117.7241, 33.5784], [-117.7215, 33.5770], 
+        [-117.7180, 33.5680], [-117.7145, 33.5665], [-117.7135, 33.5638], 
+        [-117.7160, 33.5570], [-117.7220, 33.5535], [-117.7280, 33.5520], 
+        [-117.7315, 33.5515], [-117.7340, 33.5535], [-117.7356, 33.5554]
+    ];
+
+    const stops = [
+        { name: "Ikeda Library", coords: [-117.7356, 33.5554], id: 1 },
+        { name: "Town Center", coords: [-117.7250, 33.5743], id: 2 },
+        { name: "The Commons", coords: [-117.7241, 33.5784], id: 3 },
+        { name: "Walmart", coords: [-117.7135, 33.5638], id: 4 }
+    ];
+
+    // ... (rest of your existing animateShuttle, updateETAs, and locateUser functions)
+    const scheduleStart = 7 * 60; const scheduleEnd = 22 * 60; const interval = 15;
+    let shuttlePosition = 0; let shuttleMarker; let userMarker;
+
+    map.on('load', () => {
+        map.addSource('route', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: routeCoordinates } } });
+        map.addLayer({ id: 'route-line', type: 'line', source: 'route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#003366', 'line-width': 4, 'line-opacity': 0.6 } });
+        stops.forEach(stop => {
+            const el = document.createElement('div');
+            el.style.width = '16px'; el.style.height = '16px'; el.style.background = '#fff';
+            el.style.border = '3px solid #003366'; el.style.borderRadius = '50%';
+            new mapboxgl.Marker(el).setLngLat(stop.coords).addTo(map);
+        });
+        const shuttleEl = document.createElement('div');
+        shuttleEl.innerHTML = '🚐'; shuttleEl.style.fontSize = '32px';
+        shuttleMarker = new mapboxgl.Marker(shuttleEl).setLngLat(routeCoordinates[0]).addTo(map);
+        animateShuttle(); updateETAs(); setInterval(updateETAs, 10000);
+    });
+
+    function animateShuttle() {
+        const speed = 1 / (20 * 60 * 60);
+        setInterval(() => {
+            shuttlePosition = (shuttlePosition + speed) % 1;
+            const totalSegments = routeCoordinates.length - 1;
+            const segment = shuttlePosition * totalSegments;
+            const segmentIndex = Math.floor(segment);
+            const segmentProgress = segment - segmentIndex;
+            const start = routeCoordinates[segmentIndex];
+            const end = routeCoordinates[(segmentIndex + 1) % routeCoordinates.length];
+            const lng = start[0] + (end[0] - start[0]) * segmentProgress;
+            const lat = start[1] + (end[1] - start[1]) * segmentProgress;
+            shuttleMarker.setLngLat([lng, lat]);
+        }, 1000 / 60);
+    }
+
+    function updateETAs() {
+        const now = new Date(); const currentMinutes = now.getHours() * 60 + now.getMinutes();
+        const nextTimes = [];
+        for (let t = scheduleStart; t <= scheduleEnd; t += interval) {
+            if (t > currentMinutes) { nextTimes.push(t); if (nextTimes.length === 2) break; }
+        }
+        if (nextTimes.length === 0) {
+            document.getElementById('eta-time').textContent = 'Service Ended';
+            return;
+        }
+        const nextTime = nextTimes[0]; const minutesUntil = nextTime - currentMinutes;
+        document.getElementById('eta-time').textContent = `${minutesUntil} min`;
+        document.getElementById('eta-label').textContent = `Arrives at ${formatTime(nextTime)}`;
+        document.getElementById('next-shuttle').textContent = `Next: ${formatTime(nextTime)}`;
+        if (nextTimes.length > 1) document.getElementById('following-shuttle').textContent = `Following: ${formatTime(nextTimes[1])}`;
+    }
+
+    function formatTime(minutes) {
+        const hours = Math.floor(minutes / 60); const mins = minutes % 60;
+        const period = hours >= 12 ? 'PM' : 'AM';
+        const displayHours = hours > 12 ? hours - 12 : (hours === 0 ? 12 : hours);
+        return `${displayHours}:${mins.toString().padStart(2, '0')} ${period}`;
+    }
+
+    function locateUser() {
+        if (!navigator.geolocation) return;
+        navigator.geolocation.getCurrentPosition((pos) => {
+            const { latitude, longitude } = pos.coords;
+            if (userMarker) userMarker.remove();
+            const el = document.createElement('div');
+            el.className = 'user-dot'; // Style this for the pulsing blue dot
+            el.style.width = '20px'; el.style.height = '20px'; el.style.background = '#3b82f6';
+            el.style.border = '3px solid white'; el.style.borderRadius = '50%';
+            userMarker = new mapboxgl.Marker(el).setLngLat([longitude, latitude]).addTo(map);
+            map.flyTo({ center: [longitude, latitude], zoom: 16 });
+        });
+    }
+</script>
+</body>
+</html>

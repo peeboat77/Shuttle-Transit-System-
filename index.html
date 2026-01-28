@@ -187,82 +187,114 @@
         zoom: 14.5
     });
 
-    const routeCoordinates = [
-        [-117.7356, 33.5554], [-117.7348, 33.5575], [-117.7325, 33.5610], 
-        [-117.7330, 33.5650], [-117.7315, 33.5710], [-117.7250, 33.5743], 
-        [-117.7265, 33.5775], [-117.7241, 33.5784], [-117.7215, 33.5770], 
-        [-117.7180, 33.5680], [-117.7145, 33.5665], [-117.7135, 33.5638], 
-        [-117.7160, 33.5570], [-117.7220, 33.5535], [-117.7280, 33.5520], 
-        [-117.7315, 33.5515], [-117.7340, 33.5535], [-117.7356, 33.5554]
-    ];
 
     const stops = [
         { name: "Ikeda Library", coords: [-117.7356, 33.5554] },
         { name: "Town Center", coords: [-117.7250, 33.5743] },
         { name: "The Commons", coords: [-117.7241, 33.5784] },
-        { name: "Walmart", coords: [-117.7135, 33.5638] }
+        { name: "Walmart", coords: [-117.7135, 33.5638] },
+        { name: "300 Residential Hall", coords: [-117.73548, 33.55343] },
+        { name: "380 Residential Hall", coords: [-117.73642, 33.55383] },
+        { name: "Ikeda Library", coords: [-117.7356, 33.5554] },
     ];
 
-    let shuttlePosition = 0;
-    let shuttleMarker;
+   
 
     function togglePanel() {
         document.getElementById('ui-panel').classList.toggle('collapsed');
     }
 
     // Map click hides panel only on mobile to keep desktop focus clean
+    async function fetchRoadRoute() {
+    const coords = stops.map(s => s.coords.join(',')).join(';');
+
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&access_token=${mapboxgl.accessToken}`;
+
+    const res = await fetch(url);
+    const data = await res.json();
+
+    return data.routes[0].geometry.coordinates;
+}
     map.on('click', () => {
         if (window.innerWidth < 768) {
             document.getElementById('ui-panel').classList.add('collapsed');
         }
     });
+    map.on('load', async () => {
+    const snappedRoute = await fetchRoadRoute();
 
-    map.on('load', () => {
-        map.addSource('route', {
-            type: 'geojson',
-            data: { type: 'Feature', geometry: { type: 'LineString', coordinates: routeCoordinates } }
-        });
-        
-        map.addLayer({
-            id: 'route-line',
-            type: 'line',
-            source: 'route',
-            layout: { 'line-join': 'round', 'line-cap': 'round' },
-            paint: { 'line-color': '#003366', 'line-width': 5, 'line-opacity': 0.8 }
-        });
-
-        stops.forEach(stop => {
-            const el = document.createElement('div');
-            el.style.width = '12px'; el.style.height = '12px';
-            el.style.background = 'white'; el.style.border = '3px solid #003366';
-            el.style.borderRadius = '50%';
-            new mapboxgl.Marker(el).setLngLat(stop.coords).addTo(map);
-        });
-
-        const sEl = document.createElement('div');
-        sEl.innerHTML = '🚐'; sEl.style.fontSize = '32px';
-        shuttleMarker = new mapboxgl.Marker(sEl).setLngLat(routeCoordinates[0]).addTo(map);
-
-        animateShuttle();
-        updateETAs();
-        setInterval(updateETAs, 10000);
+    map.addSource('route', {
+        type: 'geojson',
+        data: {
+            type: 'Feature',
+            geometry: {
+                type: 'LineString',
+                coordinates: snappedRoute
+            }
+        }
     });
 
-    function animateShuttle() {
-        const speed = 1 / (30 * 60 * 60); 
-        setInterval(() => {
-            shuttlePosition = (shuttlePosition + speed) % 1;
-            const totalSegments = routeCoordinates.length - 1;
-            const segment = shuttlePosition * totalSegments;
-            const idx = Math.floor(segment);
-            const progress = segment - idx;
-            const start = routeCoordinates[idx];
-            const end = routeCoordinates[(idx + 1) % routeCoordinates.length];
-            const lng = start[0] + (end[0] - start[0]) * progress;
-            const lat = start[1] + (end[1] - start[1]) * progress;
-            shuttleMarker.setLngLat([lng, lat]);
-        }, 16);
-    }
+    map.addLayer({
+        id: 'route-line',
+        type: 'line',
+        source: 'route',
+        layout: {
+            'line-join': 'round',
+            'line-cap': 'round'
+        },
+        paint: {
+            'line-color': '#003366',
+            'line-width': 5,
+            'line-opacity': 0.85
+        }
+    });
+
+    // Store for animation
+    window.routePath = snappedRoute;
+
+    // Stops
+    stops.forEach(stop => {
+        const el = document.createElement('div');
+        el.style.width = '20px';
+        el.style.height = '20px';
+        el.style.background = 'red';
+        el.style.border = '3px solid #003366';
+        el.style.borderRadius = '50%';
+        new mapboxgl.Marker(el).setLngLat(stop.coords).addTo(map);
+    });
+
+    const sEl = document.createElement('div');
+    sEl.innerHTML = '🚐';
+    sEl.style.fontSize = '32px';
+
+    shuttleMarker = new mapboxgl.Marker(sEl)
+        .setLngLat(window.routePath[0])
+        .addTo(map);
+
+    animateShuttle();
+    updateETAs();
+    setInterval(updateETAs, 10000);
+});
+function animateShuttle() {
+    let progress = 0;
+
+    setInterval(() => {
+        progress = (progress + 0.00002) % 1;
+
+        const path = window.routePath;
+        const total = path.length - 1;
+        const idx = Math.floor(progress * total);
+        const t = progress * total - idx;
+
+        const start = path[idx];
+        const end = path[idx + 1];
+
+        const lng = start[0] + (end[0] - start[0]) * t;
+        const lat = start[1] + (end[1] - start[1]) * t;
+
+        shuttleMarker.setLngLat([lng, lat]);
+    }, 16);
+}
 
     function updateETAs() {
         const now = new Date();
